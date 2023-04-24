@@ -41,14 +41,16 @@ int hexStrToNum(const char* str, size_t len) {
     return val;
 }
 
-struct SLCan {
+class SLCan {
+public:
 
     constexpr static unsigned long DEFAULT_SERIAL_TIMEOUT = 50; // Wait 250ms for commands to complete
     constexpr static unsigned long DEFAULT_SERIAL_BITRATE = 115200; // Wait 250ms for commands to complete
     constexpr static std::string_view DEFAULT_HELLO = "CAN reader\r\n";
 
-    bool _timestampEnabled = false; // Whether to include a timestamp with each packet sent to serial
+    bool _sendTimestamp = false; // Whether to include a timestamp with each packet sent to serial
     bool _listenOnly = true; // Whether CAN packets can be sent on the bus
+    bool _autoPoll = false;
     uint32_t _bitrate = 0; // Bitrate for the channel, if it is open
     char _nextCmd[50] = {};
 
@@ -63,49 +65,16 @@ struct SLCan {
         Serial.write(DEFAULT_HELLO.data(), DEFAULT_HELLO.size() - 1);
     }
 
-    // Check for packets coming from the attached CAN bus
-    void handleCanPacketIn() {
-        if (messageQueue.available()) {
-            can2040_msg& msg = *messageQueue.get();
-
-            char buf[256] = {};
-            int size = snprintf(buf, 255, "%u %u %X %X\n", msg.id, msg.dlc, msg.data32[0], msg.data32[1]);
-
-            
-
-
-            Serial.write(buf, size);
-        }
-    }
-
     void sendStatusToHost(int status) {
         Serial.write(status);
     }
 
     void sendErrorToHost() {
-        sendStatusToHost(13); // CR for OK
+        sendStatusToHost('\r'); // 13 CR for OK
     }
 
     void sendSuccessToHost() {
         sendStatusToHost(7); // BELL for ERROR
-    }
-
-    // Wait up to a short period to get length bytes over the serial bus
-    bool expectToRead(char* inBuf, char* outBuf, size_t length) {
-        size_t read = Serial.readBytes(buf, length);
-
-        return read == length;
-    }
-
-    template <typename IterT, typename CondT>
-    bool matches(IterT begin, IterT end, CondT cond) {
-        for (auto i = begin; i != end; ++i) {
-            if (!cond(*i)) { 
-                return false; 
-                }
-        }
-
-        return true;
     }
 
     void handleShell() {
@@ -120,16 +89,72 @@ struct SLCan {
         }
     }
 
+    void sendPacketToHost() {
+        if (messageQueue.available()) {
+            char out[50] = {};
+            char* cur = out;
+
+            CanMsg& msg = *messageQueue.get();
+
+            bool remoteRequest = bool(msg.msg.id & CAN2040_ID_RTR);
+            bool isExtended = bool(msg.msg.id & CAN2040_ID_EFF);
+
+            *cur = remoteRequest ? 'r' : 't';
+            *cur++ ^= isExtended ? ' ' : 0;
+
+            uint32_t canId = msg.msg.id & ~(CAN2040_ID_RTR | CAN2040_ID_EFF);
+
+            // ID
+            if (isExtended) {
+                for (int i = 28; i > 0; i -= 4) {
+                    *cur++ = binToHexChar(canId >> i & 0xF);
+                }
+            }
+            else {
+                *cur++ = binToHexChar(canId >> 8 & 0xF);
+                *cur++ = binToHexChar(canId >> 4 & 0xF);
+                *cur++ = binToHexChar(canId >> 0 & 0xF);
+            }
+
+            *cur++ = msg.msg.dlc + '0';
+
+            // Data
+            if (isExtended) {
+                for (int i = 0; i < msg.msg.dlc; i++) {
+                    *cur++ = msg.msg.data[i] >> 4;
+                    *cur++ = msg.msg.data[i] & 0xF;
+                }
+            }
+            else {
+                *cur++ = binToHexChar(canId >> 8 & 0xF);
+                *cur++ = binToHexChar(canId >> 4 & 0xF);
+                *cur++ = binToHexChar(canId >> 0 & 0xF);
+            }
+
+            if (_sendTimestamp) {
+                *cur++ = binToHexChar(msg.timestamp >> 12 & 0xF);
+                *cur++ = binToHexChar(msg.timestamp >> 8 & 0xF);
+                *cur++ = binToHexChar(msg.timestamp >> 4 & 0xF);
+                *cur++ = binToHexChar(msg.timestamp >> 0 & 0xF);
+            }
+
+            *cur++ = '\r';
+
+            Serial.write(out, cur - out);
+        }
+    }
+
+    //todo: save persistent preferences
     void handleShellCommand(char* const cmd, const size_t length) {
         char* cur = cmd;
 
         // Checks if a condition is true, returning an error to the serial host if it is not and cancelling command parsing
-        #define SHELL_ASSERT(cond) if (!(cond)) { sendErrorToHost(); return; }
+        #define SHELL_ASSERT(cond) if (!(cond)) { Serial.print("ERROR ON LINE "); Serial.println(__LINE__); sendErrorToHost(); return; }
 
         #define EXPECT_BYTES(buf, len) if ((cmd + length) > (cur + (len))) \
-            { memcpy(buf, cur, len); cur += (len); } else { sendErrorToHost(); return; }
+            { memcpy(buf, cur, len); cur += (len); } else { Serial.print("ERROR ON LINE "); Serial.println(__LINE__); sendErrorToHost(); return; }
 
-        #define EXPECT_BYTE(name) char name = 0; if (cur < cmd + length) { name = *cur++; } else { sendErrorToHost(); return; }
+        #define EXPECT_BYTE(name) char name = 0; if (cur < cmd + length) { name = *cur++; } else { Serial.print("ERROR ON LINE "); Serial.println(__LINE__); sendErrorToHost(); return; }
 
         EXPECT_BYTE(first);
 
@@ -164,7 +189,7 @@ struct SLCan {
             char params[4] = {};
             EXPECT_BYTES(params, 4);
 
-            SHELL_ASSERT(matches(std::begin(params), std::end(params), [](char c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')}));
+            SHELL_ASSERT(std::all_of(std::begin(params), std::end(params), [](char c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'); }));
 
             int rate1 = hexCharToBin(params[0]) * 16 + hexCharToBin(params[1]);
             int rate2 = hexCharToBin(params[2]) * 16 + hexCharToBin(params[3]);
@@ -201,7 +226,7 @@ struct SLCan {
         else if (first == 't') {
             SHELL_ASSERT(isNormalMode());
 
-            char params[3] = {}; // 3 char id, 1 char len
+            char params[4] = {}; // 3 char id, 1 char len
             EXPECT_BYTES(params, 4);
 
             int id = hexCharToBin(params[0]) * 256 + hexCharToBin(params[1]) * 16 + hexCharToBin(params[2]);
@@ -270,7 +295,7 @@ struct SLCan {
 
             SHELL_ASSERT(can2040_transmit(&cbus, &msg) == 0);
         }
-        else if (first == 'T') {
+        else if (first == 'R') {
             SHELL_ASSERT(isNormalMode());
 
             char params[9] = {}; // 8 char id, 1 char len
@@ -288,11 +313,104 @@ struct SLCan {
 
             SHELL_ASSERT(can2040_transmit(&cbus, &msg) == 0);
         }
+        else if (first == 'P') {
+            SHELL_ASSERT(!_autoPoll);
 
+            sendPacketToHost();
+        }
+        else if (first == 'A') {
+            SHELL_ASSERT(!_autoPoll);
 
+            while (messageQueue.available()) {
+                sendPacketToHost();
+            }
+            
+            Serial.write('A');
+        }
+        else if (first == 'F') {
+            SHELL_ASSERT(canbusIsOpen());
+
+            char resp[50] = {};
+            resp[0] = 'F';
+
+            char status = 0;
+            //status |= () << 0; // not supported by ring buffer // CAN receive FIFO queue full
+            status |= can2040_check_transmit(&cbus) << 1; // CAN transmit FIFO queue full
+            status |= 0 << 2; // Error warning (EI)
+            status |= 0 << 3; // Data Overrun (DOI)
+            status |= 0 << 4; // Unused
+            status |= 0 << 5; // Error Passive (EPI)
+            status |= 0 << 6; // Arbitration Lost (ALI)
+            status |= 0 << 7; // Bus error (BEI)
+
+            resp[1] = binToHexChar(status >> 4 & 0xF);
+            resp[2] = binToHexChar(status >> 0 & 0xF);
+        }
+        else if (first == 'X') {
+            EXPECT_BYTE(mode);
+
+            SHELL_ASSERT(mode == '0' || mode == '1')
+
+            _autoPoll = mode == '1';
+        }
+        else if (first == 'W') {
+            SHELL_ASSERT(false);
+        }
+        else if (first == 'M') {
+            //todo: implement acceptance code register
+            SHELL_ASSERT(false);
+        }
+        else if (first == 'm') {
+            SHELL_ASSERT(false);
+        }
+        else if (first == 'U') {
+            constexpr const static int speeds[] = {
+                230400,
+                115200,
+                57600,
+                38400,
+                19200,
+                9600,
+                2400
+            };
+
+            EXPECT_BYTE(speed);
+            speed -= '0';
+
+            SHELL_ASSERT(speed >= 0 && speed <= 7);
+
+            SHELL_ASSERT(false);
+
+            //Serial.end(); // NOT IMPLEMENTED ON RP2040
+            //Serial.begin(speeds[speed]);
+        }
+        else if (first == 'V') {
+            Serial.write("V1013", 5); // Sample from spec
+        }
+        else if (first == 'N') {
+            Serial.write("NA123", 5); // Sample from spec, not unique
+        }
+        else if (first == 'Z') {
+            EXPECT_BYTE(mode);
+
+            SHELL_ASSERT(mode == '0' || mode == '1')
+
+            _sendTimestamp = mode == '1';
+        }
+        else if (first == 'Q') {
+            EXPECT_BYTE(mode);
+
+            SHELL_ASSERT(mode == '0' || mode == '1' || mode == '2')
+
+            SHELL_ASSERT(false);
+        }
+
+        // Assume success (send a newline) if a command did not exit early
+        sendSuccessToHost();
 
         #undef SHELL_ASSERT
-
+        #undef EXPECT_BYTES
+        #undef EXPECT_BYTE
     }
 
     bool isNormalMode() {
@@ -301,6 +419,16 @@ struct SLCan {
 
     bool canbusIsOpen() {
         return cbus.rx_cb != nullptr;
+    }
+
+    void run() {
+        handleShell();
+
+        if (_autoPoll) {
+            while (messageQueue.available()) {
+                    sendPacketToHost();
+            }
+        }
     }
 };
 

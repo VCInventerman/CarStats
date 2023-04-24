@@ -26,8 +26,9 @@ void can2040_cb(struct can2040 *cd, uint32_t notify, struct can2040_msg *msg)
 
         //blink = !blink;
 
-        can2040_msg& buf = messagePool.get();
-        memcpy(&buf, msg, sizeof(can2040_msg));
+        CanMsg& buf = messagePool.get();
+        memcpy(&buf.msg, msg, sizeof(can2040_msg));
+        buf.timestamp = millis() % 60000;
         messageQueue.put(&buf);
 
         ++canRxCount;
@@ -58,8 +59,11 @@ void PIO2_IRQHandler()
     can2040_pio_irq_handler(&cbus2);
 }
 
-bool canbusSetup(int bitrate)
+int _bitrate = 0;
+void canbusSetupImpl()
 {
+    int bitrate = _bitrate;
+
     uint32_t pio_num = 0;
     uint32_t sys_clock = 125000000;
     uint32_t gpio_rx = 4, gpio_tx = 5;
@@ -96,6 +100,11 @@ bool canbusSetup(int bitrate)
     can2040_start(&cbus2, sys2_clock, (uint32_t)bitrate, gpio2_rx, gpio2_tx);
     
     //todo: check for irqs already open, etc
+}
+
+bool canbusSetup(int bitrate) {
+    _bitrate = bitrate;
+    multicore_launch_core1(canbusSetupImpl);
     return true;
 }
 

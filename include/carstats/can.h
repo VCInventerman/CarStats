@@ -15,8 +15,13 @@ inline struct can2040 cbus2;
 //extern RingBuf<can2040_msg, 10> messages;
 //extern RingBuf<uint, 1024> usedCore;
 
-inline tccollection::GenericCircularBuffer<can2040_msg> messagePool(10, tccollection::GenericCircularBuffer<can2040_msg>::MEMORY_POOL);
-inline tccollection::GenericCircularBuffer<can2040_msg*> messageQueue(10); 
+struct CanMsg {
+    can2040_msg msg;
+    int timestamp;
+};
+
+inline tccollection::GenericCircularBuffer<CanMsg> messagePool(10, tccollection::GenericCircularBuffer<CanMsg>::MEMORY_POOL);
+inline tccollection::GenericCircularBuffer<CanMsg*> messageQueue(10); 
 
 inline volatile int canErrorCount = 0;
 inline volatile int canRxCount = 0;
