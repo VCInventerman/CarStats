@@ -16,12 +16,13 @@ extern "C" {
 
 void can2040_cb(struct can2040 *cd, uint32_t notify, struct can2040_msg *msg)
 {
-    if (notify & CAN2040_NOTIFY_RX) {
+    if (notify == CAN2040_NOTIFY_RX) {
         //messages.lockedPush(*msg);
 
         //static bool led = false;
-        //led = !led;
+        //if (msg->data32[0] == 0) {led = !led;
         //cyw43_arch_gpio_put(0, led);
+        //}
 
         //blink = !blink;
 
@@ -57,7 +58,7 @@ void PIO2_IRQHandler()
     can2040_pio_irq_handler(&cbus2);
 }
 
-void canbusSetup(int bitrate)
+bool canbusSetup(int bitrate)
 {
     uint32_t pio_num = 0;
     uint32_t sys_clock = 125000000;
@@ -77,26 +78,30 @@ void canbusSetup(int bitrate)
 
 
 
-    /*uint32_t pio2_num = 1;
-    uint32_t sys2_clock = 125000000, bitrate2 = 500000;
-    uint32_t gpio2_rx = 7, gpio2_tx = 6;
+    uint32_t pio2_num = 1;
+    uint32_t sys2_clock = 125000000;
+    uint32_t gpio2_rx = 6, gpio2_tx = 7;
 
     // Setup canbus
     can2040_setup(&cbus2, pio2_num);
     can2040_callback_config(&cbus2, can2040_cb);
 
     // Enable irqs
-    irq_set_exclusive_handler(PIO1_IRQ_1_IRQn, PIO2_IRQHandler);
-    NVIC_SetPriority(PIO1_IRQ_1_IRQn, 1);
-    NVIC_EnableIRQ(PIO1_IRQ_1_IRQn);
+    irq_set_exclusive_handler(PIO1_IRQ_0_IRQn, PIO2_IRQHandler);
+    //irq_add_shared_handler(PIO1_IRQ_0_IRQn, PIO2_IRQHandler, 1);
+    NVIC_SetPriority(PIO1_IRQ_0_IRQn, 1);
+    NVIC_EnableIRQ(PIO1_IRQ_0_IRQn);
 
     // Start canbus
-    can2040_start(&cbus2, sys2_clock, bitrate2, gpio2_rx, gpio2_tx);*/
+    can2040_start(&cbus2, sys2_clock, (uint32_t)bitrate, gpio2_rx, gpio2_tx);
+    
+    //todo: check for irqs already open, etc
+    return true;
 }
 
 void canbusShutdown() {
-    can2040_shutdown(&cbus);
+    /*can2040_shutdown(&cbus);
 
     NVIC_DisableIRQ(PIO1_IRQ_1_IRQn);
-    irq_clear(PIO1_IRQ_1_IRQn);
+    irq_clear(PIO1_IRQ_1_IRQn);*/
 }

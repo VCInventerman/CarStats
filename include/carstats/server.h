@@ -18,7 +18,7 @@ IPAddress subnet(255,255,255,0);
 
 static constexpr const char* hostname = "CarStats CAN Reader";
 
-void connectToWifi() {
+void connectToWifi2() {
     //WiFi.mode(WIFI_STA);
     //WiFi.setHostname(hostname);
     int ret = WiFi.begin(ssid, password);
@@ -27,8 +27,8 @@ void connectToWifi() {
 void waitConnectToWifi() {
     //connectToWifi();
 
-    WiFi.softAP(ssid, password);
     WiFi.softAPConfig(local_ip, gateway, subnet);
+    WiFi.softAP(ssid, password);
 
     /*while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -48,17 +48,20 @@ void waitConnectToWifi2() {
         }
     }
 
-    cyw43_arch_enable_sta_mode();
+    //cyw43_arch_enable_sta_mode();
+    cyw43_arch_enable_ap_mode(ssid, password, CYW43_AUTH_WPA2_AES_PSK);
 
-    if (cyw43_arch_wifi_connect_timeout_ms(ssid, password, CYW43_AUTH_WPA2_AES_PSK, 10000)) {
+    /*if (cyw43_arch_wifi_connect_timeout_ms(ssid, password, CYW43_AUTH_WPA2_AES_PSK, 10000)) {
         while (true) { Serial.println("failed to connect\n"); }
 
-    }
+    }*/
 
     Serial.println("");
     Serial.print("WiFi connected, ");
     Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+    //Serial.println(WiFi.localIP());
+
+    
 }
 
 class HttpClient;

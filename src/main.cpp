@@ -1,54 +1,72 @@
-#include <utility>
-#include <optional>
 #include <charconv>
 
-#include <Arduino.h>
 #include "pico/cyw43_arch.h"
-#include "pico/stdlib.h"
 
-#include "carstats/can.h"
 #include "carstats/server.h"
-
-#include <WiFiUdp.h>
-
-#define PROG_VERSION "1.0.0"
-#define CYW43_WL_GPIO_LED_PIN 0
-
-static std::optional<HttpServer> server;
-
-static int lastMessageMs = 0;
-
-int prevMs = 0;
+#include "carstats/can.h"
+#include "carstats/serial.h"
 
 #define CAR_BITRATE 500000
 #define ROBOT_BITRATE 1000000
 
+int failCnt = 0;
+int prevMs = 0;
+
+std::optional<HttpServer> server;
+
+// Prevent initialization of cyw43 with international country in picow_init.cpp
+//extern "C" void initVariant() {}
+
+void setup2();
+void loop2();
+
+void main2() {
+    rp2040.fifo.registerCore();
+    if (setup2) {
+        setup2();
+    }
+    while (true) {
+        if (loop2) {
+            loop2();
+        }
+    }
+}
+
 void setup() {
-  //stdio_init_all();
+  //waitConnectToWifi();
 
-  Serial.begin(9600);
-  Serial.println("Begin CarStats v" PROG_VERSION);
-
-
-  waitConnectToWifi();
-
-  //pinMode(33, OUTPUT);
+  while (true) {Serial.println();}
 
   const static constexpr HttpPathHandler handlers[] = {
+    { "/failCnt", HttpPathHandler::SEND_HEADER, [](void*, HttpClient& client) { 
+      char buf[256] = {};
+      int size = snprintf(buf, sizeof(buf), "%d", failCnt);
+      client._client.write(buf, size);
+      client.close();
+      }},
+    { "/time", HttpPathHandler::SEND_HEADER, [](void*, HttpClient& client) { 
+      char buf[256] = {};
+      int size = snprintf(buf, sizeof(buf), "%d", millis());
+      client._client.write(buf, size);
+      client.close();
+      }},
     { "/canErrorCount", HttpPathHandler::SEND_HEADER, [](void*, HttpClient& client) { 
       char buf[256] = {};
       int size = snprintf(buf, sizeof(buf), "%d", canErrorCount);
       client._client.write(buf, size);
+      client.close();
       }},
     { "/canRxCount", HttpPathHandler::SEND_HEADER, [](void*, HttpClient& client) { 
       char buf[256] = {};
       int size = snprintf(buf, sizeof(buf), "%d", canRxCount);
       client._client.write(buf, size);
+      client.close();
       }},
     { "/canTxCount", HttpPathHandler::SEND_HEADER, [](void*, HttpClient& client) { 
       char buf[256] = {};
       int size = snprintf(buf, sizeof(buf), "%d", canTxCount);
       client._client.write(buf, size);
+      client.close();
       }},
     
     { "/can1", HttpPathHandler::SEND_HEADER_AND_RESP, [](void* state, HttpClient& client) {
@@ -98,10 +116,10 @@ void setup() {
     }}
   };
 
-  server = HttpServer(handlers);
-  server->begin();
+  //server = HttpServer(handlers);
+  //server->begin();
 
-  lastMessageMs = millis();
+  multicore_launch_core1(main2);
 
   prevMs = millis();
 }
@@ -117,7 +135,20 @@ void loop() {
 
   //run_cannelloni();
 
-  
+  if (messageQueue.available()) {
+        //can2040_msg msg;
+        //messages.lockedPop(msg);
+        can2040_msg& msg = *messageQueue.get();
+
+
+        char buf[256] = {};
+        int size = snprintf(buf, 255, "%u %u %X %X\n", msg.id, msg.dlc, msg.data32[0], msg.data32[1]);
+        //int size = snprintf(buf, sizeof(buf), "%u core<br>", i);
+        Serial.write(buf, size);
+  }
+
+  //server->run();
+
 
 
 
@@ -125,41 +156,35 @@ void loop() {
     prevMs = currentMs;
 
     //digitalWrite(33, currentMs % 2 == 1 ? HIGH : LOW);
-
     static bool led = false;
-    led = !led;
-
-    //if (blink) {
-      //cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led);
-    //}
+    
+    
     //cyw43_arch_gpio_put(0, false);
     //cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led);
 
     can2040_msg msg = {};
-    msg.id = 0xFFFFFFFF;
+    msg.id = 0xFFFFFFFFu;
     msg.dlc = 5;
-    msg.data32[2] = 0x52434;
-    msg.data32[3] = currentMs;
-    //messages.lockedPush(&msg);
+    msg.data32[0] = 1;
+    msg.data32[1] = 1;
 
-    //can2040_transmit(&cbus2, &msg);
+    if (cbus.rx_cb && can2040_transmit(&cbus, &msg) != 0) {
+      failCnt++;
+      //cyw43_arch_gpio_put(0, led);
+      led = !led;
+    }
   }
 
-  server->run();
-
-  /*can2040_msg test = {};
-  test.id = 0xFFFFFFFF;
-  test.dlc = 5;
-  test.data32[2] = 0x52434;
-  messages.lockedPush(&test);*/
 }
 
 
 
-void setup1() {
-  canbusSetup(ROBOT_BITRATE);
+void setup2() {
+  canbusSetup(CAR_BITRATE);
+
+  
 }
 
-void loop1() {
+void loop2() {
   tight_loop_contents();
 }

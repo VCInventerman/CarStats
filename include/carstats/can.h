@@ -22,7 +22,7 @@ inline volatile int canErrorCount = 0;
 inline volatile int canRxCount = 0;
 inline volatile int canTxCount = 0;
 
-void canbusSetup(int bitrate);
+bool canbusSetup(int bitrate);
 void canbusShutdown();
 
 #endif
