@@ -63,7 +63,7 @@ void loop() {
 
   can.run();
 
-  if (currentMs - prevMs > 1000) {
+  if (enableTestPackets && (currentMs - prevMs) > 1000) {
     prevMs = currentMs;
 
     static bool led = false;

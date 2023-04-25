@@ -63,6 +63,8 @@ struct SLCanConfig {
     }
 };
 
+bool enableTestPackets = false;
+
 class SLCan {
 public:
     constexpr static unsigned long DEFAULT_SERIAL_TIMEOUT = 50; // Wait 250ms for commands to complete
@@ -78,7 +80,7 @@ public:
     size_t _cmdLength = 0;
 
     SLCan() {
-        config = SLCanConfig::defaults();
+        _config = SLCanConfig::defaults();
     }
 
     void init() {
@@ -420,16 +422,16 @@ public:
             SHELL_ASSERT(_bitrate != 0 && !canbusIsOpen());
 
             union {
-                uint32_t full,
-                char bytes[4]
-            } acceptanceCode;
+                uint32_t full;
+                char bytes[4];
+            };
 
             char params[8] = {};
             EXPECT_BYTES(params, 8);
 
             SHELL_ASSERT(isHexStr(params, 8));
             for (int i = 0; i < 4; i++) {
-                bytes[i] = hexCharToBin(params[i * 2 + 1]) * 16 + hexCharToBin(params[i * 2])
+                bytes[i] = hexCharToBin(params[i * 2 + 1]) * 16 + hexCharToBin(params[i * 2]);
             }
         }
         // Set acceptance mask register
@@ -437,16 +439,16 @@ public:
             SHELL_ASSERT(_bitrate != 0 && !canbusIsOpen());
 
             union {
-                uint32_t full,
-                char bytes[4]
-            } acceptanceMask;
+                uint32_t full;
+                char bytes[4];
+            };
 
             char params[8] = {};
             EXPECT_BYTES(params, 8);
 
             SHELL_ASSERT(isHexStr(params, 8));
             for (int i = 0; i < 4; i++) {
-                acceptanceMask.bytes[i] = hexCharToBin(params[i * 2 + 1]) * 16 + hexCharToBin(params[i * 2])
+                bytes[i] = hexCharToBin(params[i * 2 + 1]) * 16 + hexCharToBin(params[i * 2]);
             }
         }
         // Set serial baud rate (persistent)
@@ -511,7 +513,12 @@ public:
         }
         // Dump internal counters (not in spec)
         else if (first == 'D') {
-            Serial.printf("rx: %d, tx: %d, err: %d", canRxCount, canTxCount, canErrorCount);
+            Serial.printf("rx: %d, tx: %d, err: %d, cbus.rx_cb %p, setupStage %d", canRxCount, canTxCount, canErrorCount, cbus.rx_cb, setupStage);
+        }
+        // Produce test packets on second bus (not in spec)
+        else if (first == 'B') {
+            enableTestPackets = !enableTestPackets;
+            Serial.printf("Test packets: %d", enableTestPackets);
         }
 
         // Assume success (send a newline) if a command did not exit early
