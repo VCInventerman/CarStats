@@ -46,13 +46,15 @@ public:
 
     constexpr static unsigned long DEFAULT_SERIAL_TIMEOUT = 50; // Wait 250ms for commands to complete
     constexpr static unsigned long DEFAULT_SERIAL_BITRATE = 115200; // Wait 250ms for commands to complete
-    constexpr static std::string_view DEFAULT_HELLO = "CAN reader\r\n";
+    constexpr static std::string_view DEFAULT_HELLO = "CAN reader\r";
 
     bool _sendTimestamp = false; // Whether to include a timestamp with each packet sent to serial
     bool _listenOnly = true; // Whether CAN packets can be sent on the bus
     bool _autoPoll = false;
     uint32_t _bitrate = 0; // Bitrate for the channel, if it is open
+
     char _nextCmd[50] = {};
+    size_t _cmdLength = 0;
 
     SLCan() {
         
@@ -60,7 +62,7 @@ public:
 
     void init() {
         Serial.setTimeout(DEFAULT_SERIAL_TIMEOUT);
-        Serial.begin(DEFAULT_SERIAL_BITRATE);
+        //Serial.begin(DEFAULT_SERIAL_BITRATE); // Does nothing since the tinyusb serial bus is both started by default and ignorant of bitrate (always 115200)
 
         Serial.write(DEFAULT_HELLO.data(), DEFAULT_HELLO.size() - 1);
     }
@@ -69,79 +71,77 @@ public:
         Serial.write(status);
     }
 
-    void sendErrorToHost() {
+    void sendSuccessToHost() {
         sendStatusToHost('\r'); // 13 CR for OK
     }
 
-    void sendSuccessToHost() {
+    void sendErrorToHost() {
         sendStatusToHost(7); // BELL for ERROR
     }
 
     void handleShell() {
-        while (Serial.available()) {
-            size_t length = Serial.readBytesUntil(13, _nextCmd, sizeof(_nextCmd));
+        while (Serial.available() != 0) {
+            char next = Serial.read();
 
-            if (length == 0) {
-                return; // Uh oh
+            if (next == -1) {
+                return;
             }
-
-            handleShellCommand(_nextCmd, length);
+            if (next == '\r') {
+                if (_cmdLength > 0) {
+                    handleShellCommand(_nextCmd, _cmdLength);
+                    _cmdLength = 0;
+                }
+            }
+            else {
+                _nextCmd[_cmdLength++] = next;
+            }
         }
     }
 
+    // Requires that a packet be waiting in messageQueue
     void sendPacketToHost() {
-        if (messageQueue.available()) {
-            char out[50] = {};
-            char* cur = out;
+        char out[50] = {};
+        char* cur = out;
 
-            CanMsg& msg = *messageQueue.get();
+        CanMsg& msg = *messageQueue.get();
 
-            bool remoteRequest = bool(msg.msg.id & CAN2040_ID_RTR);
-            bool isExtended = bool(msg.msg.id & CAN2040_ID_EFF);
+        bool remoteRequest = bool(msg.msg.id & CAN2040_ID_RTR);
+        bool isExtended = bool(msg.msg.id & CAN2040_ID_EFF);
 
-            *cur = remoteRequest ? 'r' : 't';
-            *cur++ ^= isExtended ? ' ' : 0;
+        *cur = remoteRequest ? 'r' : 't';
+        *cur++ ^= isExtended ? ' ' : 0;
 
-            uint32_t canId = msg.msg.id & ~(CAN2040_ID_RTR | CAN2040_ID_EFF);
+        uint32_t canId = msg.msg.id & ~(CAN2040_ID_RTR | CAN2040_ID_EFF);
 
-            // ID
-            if (isExtended) {
-                for (int i = 28; i > 0; i -= 4) {
-                    *cur++ = binToHexChar(canId >> i & 0xF);
-                }
+        // ID
+        if (isExtended) {
+            for (int i = 28; i > 0; i -= 4) {
+                *cur++ = binToHexChar(canId >> i & 0xF);
             }
-            else {
-                *cur++ = binToHexChar(canId >> 8 & 0xF);
-                *cur++ = binToHexChar(canId >> 4 & 0xF);
-                *cur++ = binToHexChar(canId >> 0 & 0xF);
-            }
-
-            *cur++ = msg.msg.dlc + '0';
-
-            // Data
-            if (isExtended) {
-                for (int i = 0; i < msg.msg.dlc; i++) {
-                    *cur++ = msg.msg.data[i] >> 4;
-                    *cur++ = msg.msg.data[i] & 0xF;
-                }
-            }
-            else {
-                *cur++ = binToHexChar(canId >> 8 & 0xF);
-                *cur++ = binToHexChar(canId >> 4 & 0xF);
-                *cur++ = binToHexChar(canId >> 0 & 0xF);
-            }
-
-            if (_sendTimestamp) {
-                *cur++ = binToHexChar(msg.timestamp >> 12 & 0xF);
-                *cur++ = binToHexChar(msg.timestamp >> 8 & 0xF);
-                *cur++ = binToHexChar(msg.timestamp >> 4 & 0xF);
-                *cur++ = binToHexChar(msg.timestamp >> 0 & 0xF);
-            }
-
-            *cur++ = '\r';
-
-            Serial.write(out, cur - out);
         }
+        else {
+            *cur++ = binToHexChar(canId >> 8 & 0xF);
+            *cur++ = binToHexChar(canId >> 4 & 0xF);
+            *cur++ = binToHexChar(canId >> 0 & 0xF);
+        }
+
+        *cur++ = msg.msg.dlc + '0';
+
+        // Data
+        for (int i = msg.msg.dlc * 4; i > 0; i -= 4) {
+            *cur++ = binToHexChar(canId >> i & 0xF);
+        }
+
+        if (_sendTimestamp) {
+            *cur++ = binToHexChar(msg.timestamp >> 12 & 0xF);
+            *cur++ = binToHexChar(msg.timestamp >> 8 & 0xF);
+            *cur++ = binToHexChar(msg.timestamp >> 4 & 0xF);
+            *cur++ = binToHexChar(msg.timestamp >> 0 & 0xF);
+        }
+
+        *cur++ = '\r';
+
+        Serial.write(out, cur - out);
     }
 
     //todo: save persistent preferences
@@ -149,12 +149,12 @@ public:
         char* cur = cmd;
 
         // Checks if a condition is true, returning an error to the serial host if it is not and cancelling command parsing
-        #define SHELL_ASSERT(cond) if (!(cond)) { Serial.print("ERROR ON LINE "); Serial.println(__LINE__); sendErrorToHost(); return; }
+        #define SHELL_ASSERT(cond) if (!(cond)) { Serial.printf("ERROR ON LINE %d\r", __LINE__); sendErrorToHost(); return; }
 
         #define EXPECT_BYTES(buf, len) if ((cmd + length) > (cur + (len))) \
-            { memcpy(buf, cur, len); cur += (len); } else { Serial.print("ERROR ON LINE "); Serial.println(__LINE__); sendErrorToHost(); return; }
+            { memcpy(buf, cur, len); cur += (len); } else { Serial.printf("ERROR ON LINE %d\r", __LINE__); sendErrorToHost(); return; }
 
-        #define EXPECT_BYTE(name) char name = 0; if (cur < cmd + length) { name = *cur++; } else { Serial.print("ERROR ON LINE "); Serial.println(__LINE__); sendErrorToHost(); return; }
+        #define EXPECT_BYTE(name) char name = 0; if (cur < cmd + length) { name = *cur++; } else { Serial.printf("ERROR ON LINE %d\r", __LINE__); sendErrorToHost(); return; }
 
         EXPECT_BYTE(first);
 
@@ -280,7 +280,7 @@ public:
         else if (first == 'r') {
             SHELL_ASSERT(isNormalMode());
 
-            char params[3] = {}; // 3 char id, 1 char len
+            char params[4] = {}; // 3 char id, 1 char len
             EXPECT_BYTES(params, 4);
 
             int id = hexCharToBin(params[0]) * 256 + hexCharToBin(params[1]) * 16 + hexCharToBin(params[2]);
@@ -316,7 +316,9 @@ public:
         else if (first == 'P') {
             SHELL_ASSERT(!_autoPoll);
 
-            sendPacketToHost();
+            if (messageQueue.available()) {
+                sendPacketToHost();
+            }
         }
         else if (first == 'A') {
             SHELL_ASSERT(!_autoPoll);
@@ -345,6 +347,8 @@ public:
 
             resp[1] = binToHexChar(status >> 4 & 0xF);
             resp[2] = binToHexChar(status >> 0 & 0xF);
+
+            Serial.write(resp);
         }
         else if (first == 'X') {
             EXPECT_BYTE(mode);
@@ -403,6 +407,11 @@ public:
             SHELL_ASSERT(mode == '0' || mode == '1' || mode == '2')
 
             SHELL_ASSERT(false);
+        }
+
+        else if (first == 'D') {
+            // debug
+            Serial.printf("rx: %d, tx: %d, err: %d\r", canRxCount, canTxCount, canErrorCount);
         }
 
         // Assume success (send a newline) if a command did not exit early

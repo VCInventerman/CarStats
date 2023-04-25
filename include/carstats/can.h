@@ -7,8 +7,10 @@ extern "C" {
 #include <can2040.h>
 }
 
-inline struct can2040 cbus;
-inline struct can2040 cbus2;
+#define barrier() __asm__ __volatile__("": : :"memory")
+
+inline struct can2040 cbus = {};
+inline struct can2040 cbus2 = {};
 //extern bool blink;
 
 
@@ -27,7 +29,10 @@ inline volatile int canErrorCount = 0;
 inline volatile int canRxCount = 0;
 inline volatile int canTxCount = 0;
 
+inline volatile bool enableCanbus = false;
+
 bool canbusSetup(int bitrate);
+void canbusSetupImpl();
 void canbusShutdown();
 
 #endif

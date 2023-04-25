@@ -37,7 +37,7 @@ void can2040_cb(struct can2040 *cd, uint32_t notify, struct can2040_msg *msg)
         ++canTxCount;
     }
     else if (notify == CAN2040_NOTIFY_ERROR) {
-        canErrorCount++;
+        ++canErrorCount;
 
         //messages.lockedPush(*msg);
     }
@@ -65,7 +65,7 @@ void canbusSetupImpl()
     int bitrate = _bitrate;
 
     uint32_t pio_num = 0;
-    uint32_t sys_clock = 125000000;
+    uint32_t sys_clock = F_CPU;
     uint32_t gpio_rx = 4, gpio_tx = 5;
 
     // Setup canbus
@@ -83,7 +83,7 @@ void canbusSetupImpl()
 
 
     uint32_t pio2_num = 1;
-    uint32_t sys2_clock = 125000000;
+    uint32_t sys2_clock = F_CPU;
     uint32_t gpio2_rx = 6, gpio2_tx = 7;
 
     // Setup canbus
@@ -100,11 +100,18 @@ void canbusSetupImpl()
     can2040_start(&cbus2, sys2_clock, (uint32_t)bitrate, gpio2_rx, gpio2_tx);
     
     //todo: check for irqs already open, etc
+    
+
+    
 }
 
 bool canbusSetup(int bitrate) {
+    barrier();
     _bitrate = bitrate;
-    multicore_launch_core1(canbusSetupImpl);
+    barrier();
+    enableCanbus = true;
+    barrier();
+    //multicore_launch_core1(canbusSetupImpl);
     return true;
 }
 

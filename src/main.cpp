@@ -9,7 +9,7 @@
 #define CAR_BITRATE 500000
 #define ROBOT_BITRATE 1000000
 
-int failCnt = 0;
+//int failCnt = 0;
 int prevMs = 0;
 
 std::optional<HttpServer> server;
@@ -19,10 +19,10 @@ SLCan can;
 // Prevent initialization of cyw43 with international country in picow_init.cpp
 //extern "C" void initVariant() {}
 
-void setup2();
-void loop2();
+//void setup2();
+//void loop2();
 
-void main2() {
+/*void main2() {
     rp2040.fifo.registerCore();
     if (setup2) {
         setup2();
@@ -32,7 +32,7 @@ void main2() {
             loop2();
         }
     }
-}
+}*/
 
 void setup() {
   can.init();
@@ -69,26 +69,31 @@ void loop() {
     //cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led);
 
     can2040_msg msg = {};
-    msg.id = 0xFFFFFFFFu;
+    msg.id = 0x5;
     msg.dlc = 5;
     msg.data32[0] = 1;
     msg.data32[1] = 1;
 
-    if (cbus.rx_cb && can2040_transmit(&cbus, &msg) != 0) {
-      failCnt++;
+    if (cbus.rx_cb && can2040_transmit(&cbus2, &msg) != 0) {
+      canErrorCount++;
       led = !led;
-      cyw43_arch_gpio_put(0, led);
+      //cyw43_arch_gpio_put(0, led);
+
+      Serial.print("FAIL TO SEND\r");
     }
   }
 
 }
 
-
-
-void setup2() {
+void setup1() {
   
 }
 
-void loop2() {
-  tight_loop_contents();
+void loop1() {
+  if (enableCanbus) {
+    barrier();
+    enableCanbus = false;
+    barrier();
+    canbusSetupImpl();
+  }
 }
