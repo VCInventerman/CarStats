@@ -9,22 +9,22 @@
 
 #include "carstats/log.h"
 
-const char* ssid = "Code Reader 1";
-const char* password = "password";
+constexpr static const char* ssid = "Code Reader 1";
+constexpr static const char* password = "password";
 
-IPAddress local_ip(192,168,44,1);
-IPAddress gateway(192,168,44,1);
-IPAddress subnet(255,255,255,0);
+inline const IPAddress local_ip(192,168,44,1);
+inline const IPAddress gateway(192,168,44,1);
+inline const IPAddress subnet(255,255,255,0);
 
 static constexpr const char* hostname = "CarStats CAN Reader";
 
-void connectToWifi2() {
+inline void connectToWifi2() {
     //WiFi.mode(WIFI_STA);
     //WiFi.setHostname(hostname);
     int ret = WiFi.begin(ssid, password);
 }
 
-void waitConnectToWifi() {
+inline void waitConnectToWifi() {
     //connectToWifi();
 
     WiFi.softAPConfig(local_ip, gateway, subnet);
@@ -41,15 +41,16 @@ void waitConnectToWifi() {
     Serial.println(WiFi.localIP());
 }
 
-void waitConnectToWifi2() {
-    if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) {
+inline void waitConnectToWifi2() {
+    // in initVariant
+    /*if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) {
         while (true) {
             Serial.println("WiFi init fail");
         }
-    }
+    }*/
 
     //cyw43_arch_enable_sta_mode();
-    cyw43_arch_enable_ap_mode(ssid, password, CYW43_AUTH_WPA2_AES_PSK);
+    //cyw43_arch_enable_ap_mode(ssid, password, CYW43_AUTH_WPA2_AES_PSK);
 
     /*if (cyw43_arch_wifi_connect_timeout_ms(ssid, password, CYW43_AUTH_WPA2_AES_PSK, 10000)) {
         while (true) { Serial.println("failed to connect\n"); }
@@ -283,6 +284,8 @@ public:
     }
 };
 
+inline std::optional<HttpServer> httpServer;
 
+void initHttpServer();
 
 #endif

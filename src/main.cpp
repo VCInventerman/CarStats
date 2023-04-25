@@ -37,6 +37,9 @@ SLCan can;
 void setup() {
   can.init();
 
+  waitConnectToWifi();
+  initHttpServer();
+
   prevMs = millis();
 }
 
